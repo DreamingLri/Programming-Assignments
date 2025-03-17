@@ -82,6 +82,18 @@ public abstract class Solver<Node, Fact> {
 
     protected void initializeBackward(CFG<Node> cfg, DataflowResult<Node, Fact> result) {
         // TODO - finish me
+        // 将 exit 节点的 InFact 设置为空
+        result.setInFact(cfg.getExit(), analysis.newBoundaryFact(cfg));
+
+        // 遍历所有节点，将其它节点的 InFact 和 OutFact 均设置为空
+        for (Node node : cfg) {
+            if (node != cfg.getExit()) {
+                // 设置节点的 InFact 集合为空
+                result.setInFact(node, analysis.newInitialFact());
+                // 设置节点的 OutFact 也为空
+                result.setOutFact(node, analysis.newInitialFact());
+            }
+        }
     }
 
     /**
