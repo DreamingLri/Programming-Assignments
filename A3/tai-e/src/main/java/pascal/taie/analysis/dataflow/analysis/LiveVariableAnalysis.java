@@ -25,6 +25,8 @@ package pascal.taie.analysis.dataflow.analysis;
 import pascal.taie.analysis.dataflow.fact.SetFact;
 import pascal.taie.analysis.graph.cfg.CFG;
 import pascal.taie.config.AnalysisConfig;
+import pascal.taie.ir.exp.LValue;
+import pascal.taie.ir.exp.RValue;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Stmt;
 
@@ -48,23 +50,48 @@ public class LiveVariableAnalysis extends
     @Override
     public SetFact<Var> newBoundaryFact(CFG<Stmt> cfg) {
         // TODO - finish me
-        return null;
+        // backwards的边界节点是 exit节点，将其初始化为空
+        return new SetFact<Var>();
     }
 
     @Override
     public SetFact<Var> newInitialFact() {
         // TODO - finish me
-        return null;
+        return new SetFact<Var>();
     }
 
     @Override
     public void meetInto(SetFact<Var> fact, SetFact<Var> target) {
         // TODO - finish me
+        target.union(fact);
     }
 
     @Override
     public boolean transferNode(Stmt stmt, SetFact<Var> in, SetFact<Var> out) {
         // TODO - finish me
+        // 复制出集合，初始化新的 InFact
+        SetFact<Var> newInFact = new SetFact<>();
+        // 将 out 中的变量全部复制到 newInFact 中
+        newInFact.union(out);
+        // 如果语句定义了一个变量，移除该变量（定义操作覆盖之前的值）
+        if (stmt.getDef().isPresent()) {
+            LValue def = stmt.getDef().get();
+            if (def instanceof Var) {
+                newInFact.remove((Var) def);
+            }
+        }
+        // 遍历语句中的所有使用变量，将它们添加到 newInFact 中
+        for (RValue use : stmt.getUses()) {
+            if (use instanceof Var) {
+                newInFact.add((Var) use);
+            }
+        }
+        // 如果新的入集合与原入集合不同，就更新 in 并返回 true（表示集合有变化）
+        if (!newInFact.equals(in)) {
+            in.set(newInFact);
+            return true;
+        }
+        // 否则返回 false，表示集合没有变化
         return false;
     }
 }
