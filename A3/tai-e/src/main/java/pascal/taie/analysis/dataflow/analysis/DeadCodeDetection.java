@@ -44,10 +44,9 @@ import pascal.taie.ir.stmt.AssignStmt;
 import pascal.taie.ir.stmt.If;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.ir.stmt.SwitchStmt;
+import pascal.taie.util.collection.Pair;
 
-import java.util.Comparator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class DeadCodeDetection extends MethodAnalysis {
 
@@ -71,6 +70,56 @@ public class DeadCodeDetection extends MethodAnalysis {
         Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
         // TODO - finish me
         // Your task is to recognize dead code in ir and add it to deadCode
+        Set<Stmt> liveCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex)); // 存储活跃代码
+        Queue<Stmt> queue = new LinkedList<>(); // 使用队列进行广度优先搜索
+
+        queue.add(cfg.getEntry()); // 从入口节点开始
+        while (!queue.isEmpty()) {
+            Stmt stmt = queue.poll();
+            if (stmt instanceof AssignStmt<?, ?> s && s.getLValue() instanceof Var var) { // 如果是赋值语句且左值是变量
+                if (!liveVars.getResult(stmt).contains(var) && hasNoSideEffect(s.getRValue())) { // 如果变量不在活跃变量集合中且右值没有副作用
+                    queue.addAll(cfg.getSuccsOf(stmt)); // 将后继节点加入队列
+                    continue; // 继续处理下一个节点
+                }
+            }
+            if (!liveCode.add(stmt)) { // 如果当前节点已经在活跃代码集合中，跳过
+                continue;
+            }
+            if (stmt instanceof If s) { // 如果是条件语句
+                Value cond = ConstantPropagation.evaluate(s.getCondition(), constants.getInFact(stmt));
+                if (cond.isConstant()) { // 如果条件是常量
+                    for (Edge<Stmt> edge : cfg.getOutEdgesOf(stmt)) { // 遍历所有出边
+                        if ((cond.getConstant() == 1 && edge.getKind() == Edge.Kind.IF_TRUE) ||
+                                (cond.getConstant() == 0 && edge.getKind() == Edge.Kind.IF_FALSE)) { // 如果条件为真，添加真分支的后继节点
+                            queue.add(edge.getTarget());
+                        }
+                    }
+                } else { // 如果条件不是常量，处理所有后继节点
+                    queue.addAll(cfg.getSuccsOf(stmt));
+                }
+            } else if (stmt instanceof SwitchStmt s) { // 如果是 switch 语句
+                Value val = ConstantPropagation.evaluate(s.getVar(), constants.getInFact(stmt)); // 计算 switch 变量的值
+                if (val.isConstant()) { // 如果值是常量
+                    boolean hit = false;
+                    for (Pair<Integer, Stmt> pair : s.getCaseTargets()) { // 遍历所有 case 分支
+                        if (pair.first() == val.getConstant()) { // 如果 case 分支匹配
+                            hit = true;
+                            queue.add(pair.second()); // 添加匹配的 case 分支的后继节点
+                        }
+                    }
+                    if (!hit) { // 如果没有匹配的 case 分支，处理默认分支
+                        queue.add(s.getDefaultTarget());
+                    }
+                } else { // 如果值不是常量，处理所有后继节点
+                    queue.addAll(cfg.getSuccsOf(stmt));
+                }
+            } else { // 处理其他类型的语句的后继节点
+                queue.addAll(cfg.getSuccsOf(stmt));
+            }
+        }
+        deadCode.addAll(cfg.getNodes()); // 将 CFG 中的所有节点添加到死代码集合中
+        deadCode.removeAll(liveCode); // 从死代码集合中移除活跃代码
+        deadCode.remove(cfg.getExit()); // 移除 exit 节点
         return deadCode;
     }
 
