@@ -38,6 +38,9 @@ import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.language.classes.JMethod;
 
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * Implementation of interprocedural constant propagation for int values.
  */
@@ -77,36 +80,63 @@ public class InterConstantPropagation extends
     @Override
     protected boolean transferCallNode(Stmt stmt, CPFact in, CPFact out) {
         // TODO - finish me
-        return false;
+        AtomicBoolean changed = new AtomicBoolean(false); // 用于记录是否有更新发生
+        in.forEach(((var, value) -> { // 遍历输入的每个变量和值，如果输出中更新了变量的值，则标记为已更改
+            if(out.update(var, value)){
+                changed.set(true);
+            }
+        }));
+        return changed.get(); // 返回是否发生了更改
     }
 
     @Override
     protected boolean transferNonCallNode(Stmt stmt, CPFact in, CPFact out) {
         // TODO - finish me
-        return false;
+        return cp.transferNode(stmt, in, out); // 调用常量传播的节点传递逻辑
     }
 
     @Override
     protected CPFact transferNormalEdge(NormalEdge<Stmt> edge, CPFact out) {
         // TODO - finish me
-        return null;
+        return out; // 对普通边不做任何修改，直接返回输出
     }
 
     @Override
     protected CPFact transferCallToReturnEdge(CallToReturnEdge<Stmt> edge, CPFact out) {
         // TODO - finish me
-        return null;
+        Invoke callSite = (Invoke) edge.getSource(); // 获取调用点
+        Var lVar = callSite.getLValue(); // 获取调用点的左值变量
+        CPFact result = out.copy(); // 复制输出作为结果
+        if(lVar != null){
+            result.remove(lVar); // 如果左值变量不为空，从结果中移除该变量
+        }
+        return result; // 返回更新后的结果
     }
 
     @Override
     protected CPFact transferCallEdge(CallEdge<Stmt> edge, CPFact callSiteOut) {
         // TODO - finish me
-        return null;
+        Invoke callSite = (Invoke) edge.getSource(); // 获取调用点
+        CPFact result = new CPFact(); // 创建一个新的结果
+        List<Var> args = edge.getCallee().getIR().getParams(); // 获取被调用方法的参数列表
+        assert args.size() == callSite.getRValue().getArgs().size(); // 确保参数数量匹配
+        for(int i = 0;i < args.size();i ++){
+            result.update(args.get(i), callSiteOut.get(callSite.getRValue().getArg(i))); // 将调用点的实参值映射到被调用方法的形参
+        }
+        return result; // 返回更新后的结果
     }
 
     @Override
     protected CPFact transferReturnEdge(ReturnEdge<Stmt> edge, CPFact returnOut) {
         // TODO - finish me
-        return null;
+        CPFact result = new CPFact(); // 创建一个新的结果
+        Invoke callSite = (Invoke) edge.getCallSite(); // 获取调用点
+        Var lVar = callSite.getLValue(); // 获取调用点的左值变量
+        if(lVar != null){ // 如果左值变量不为空，将返回值与现有值合并
+            edge.getReturnVars().forEach(var -> {
+                result.update(lVar, cp.meetValue(result.get(lVar), returnOut.get(var)));
+            });
+        }
+        return result; // 返回更新后的结果
     }
 }
